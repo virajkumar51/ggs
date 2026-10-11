@@ -1,0 +1,6 @@
+{
+  "summary":  "Implementation plan for upgrading QuantPulse to live Yahoo Finance market quotes, historical OHLCV candles across all 6 timeframes, live fundamental metrics with strict unavailable-field handling, and genuine exchange-hours refresh without synthetic ticks.",
+  "updatedAt":  "2026-10-11T15:01:23.408478842Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}

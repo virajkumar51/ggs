@@ -1,0 +1,218 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Public and preference profile for a QuantPulse user",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the owner",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Display name of the user",
+          "maxLength": 80
+        },
+        "bio": {
+          "type": "string",
+          "description": "Short investor research focus or bio",
+          "maxLength": 300
+        },
+        "refreshIntervalSec": {
+          "type": "number",
+          "description": "Auto-refresh interval in seconds (0, 15, 30, 60)"
+        },
+        "defaultTimeframe": {
+          "type": "string",
+          "description": "Default chart timeframe",
+          "enum": ["1D", "1W", "1M", "3M", "6M", "1Y"],
+          "maxLength": 10
+        },
+        "defaultChartType": {
+          "type": "string",
+          "description": "Default chart visualization style",
+          "enum": ["candlestick", "line"],
+          "maxLength": 20
+        },
+        "watchlist": {
+          "type": "array",
+          "description": "Bounded list of up to 30 watched stock symbols",
+          "maxLength": 30
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when profile was created"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when profile was last updated"
+        }
+      },
+      "required": ["uid", "displayName", "refreshIntervalSec", "defaultTimeframe", "defaultChartType", "watchlist", "createdAt", "updatedAt"]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Isolated PII storage for user email address",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Owner UID",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Verified user email address",
+          "maxLength": 254
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp"
+        }
+      },
+      "required": ["uid", "email", "createdAt"]
+    },
+    "AlertConfig": {
+      "title": "AlertConfig",
+      "description": "Configurable market research alert owned by a user",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Alert identifier",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner UID",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "symbol": {
+          "type": "string",
+          "description": "Stock ticker symbol",
+          "maxLength": 16
+        },
+        "conditionType": {
+          "type": "string",
+          "description": "Type of alert condition",
+          "enum": ["PRICE_ABOVE", "PRICE_BELOW", "DAILY_CHANGE_PCT", "RSI_ABOVE", "RSI_BELOW", "MACD_CROSSOVER", "MA_CROSSOVER", "COMPANY_NEWS"],
+          "maxLength": 32
+        },
+        "threshold": {
+          "type": "number",
+          "description": "Numeric threshold for price, % move, or RSI"
+        },
+        "timeframe": {
+          "type": "string",
+          "description": "Evaluation timeframe",
+          "maxLength": 16
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether alert evaluation is active"
+        },
+        "status": {
+          "type": "string",
+          "description": "Current evaluation status",
+          "enum": ["ARMED", "TRIGGERED", "PAUSED"],
+          "maxLength": 16
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update timestamp"
+        }
+      },
+      "required": ["id", "userId", "symbol", "conditionType", "threshold", "timeframe", "enabled", "status", "createdAt", "updatedAt"]
+    },
+    "ScreenerPreset": {
+      "title": "ScreenerPreset",
+      "description": "Saved stock screener filter preset for a user",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Preset ID",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner UID",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Preset display name",
+          "maxLength": 60
+        },
+        "sector": {
+          "type": "string",
+          "description": "Selected sector filter",
+          "maxLength": 40
+        },
+        "minMarketCapB": {
+          "type": "number",
+          "description": "Minimum market cap in billions"
+        },
+        "maxPE": {
+          "type": "number",
+          "description": "Maximum P/E ratio"
+        },
+        "minRsi": {
+          "type": "number",
+          "description": "Minimum RSI (14)"
+        },
+        "maxRsi": {
+          "type": "number",
+          "description": "Maximum RSI (14)"
+        },
+        "signalFilter": {
+          "type": "string",
+          "description": "Technical signal filter",
+          "maxLength": 40
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp"
+        }
+      },
+      "required": ["id", "userId", "name", "sector", "minMarketCapB", "maxPE", "minRsi", "maxRsi", "signalFilter", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User preferences and watchlist document"
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivateInfo" },
+      "description": "Isolated PII document storing user email"
+    },
+    "/users/{userId}/alerts/{alertId}": {
+      "schema": { "$ref": "#/entities/AlertConfig" },
+      "description": "User-configured market alerts"
+    },
+    "/users/{userId}/presets/{presetId}": {
+      "schema": { "$ref": "#/entities/ScreenerPreset" },
+      "description": "User-saved stock screener filter presets"
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "QuantPulse",
+  "description": "Intelligence for Every Market Move — AI-powered stock-market research, technical analysis, screening, comparison, financial news, and scenario forecasting dashboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

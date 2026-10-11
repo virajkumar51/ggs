@@ -1,0 +1,183 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net: Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Hardened Global Helpers
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Validation Blueprint: UserProfile
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'bio', 'refreshIntervalSec', 'defaultTimeframe', 'defaultChartType', 'watchlist', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'bio', 'refreshIntervalSec', 'defaultTimeframe', 'defaultChartType', 'watchlist', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 && data.uid.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.uid == request.auth.uid
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80
+        && data.bio is string && data.bio.size() <= 300
+        && data.refreshIntervalSec is number && data.refreshIntervalSec >= 0 && data.refreshIntervalSec <= 300
+        && data.defaultTimeframe is string && data.defaultTimeframe.size() <= 10 && data.defaultTimeframe in ['1D', '1W', '1M', '3M', '6M', '1Y']
+        && data.defaultChartType is string && data.defaultChartType.size() <= 20 && data.defaultChartType in ['candlestick', 'line']
+        && data.watchlist is list && data.watchlist.size() <= 30
+        && (data.watchlist.size() == 0 || (data.watchlist[0] is string && data.watchlist[0].size() <= 16))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: UserPrivateInfo
+    function isValidUserPrivateInfo(data) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt'])
+        && data.keys().hasOnly(['uid', 'email', 'createdAt'])
+        && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 && data.uid.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.uid == request.auth.uid
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && data.createdAt is timestamp;
+    }
+
+    // Validation Blueprint: AlertConfig
+    function isValidAlertConfig(data) {
+      return data.keys().hasAll(['id', 'userId', 'symbol', 'conditionType', 'threshold', 'timeframe', 'enabled', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'symbol', 'conditionType', 'threshold', 'timeframe', 'enabled', 'status', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id.size() >= 1 && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 && data.userId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.userId == request.auth.uid
+        && data.symbol is string && data.symbol.size() >= 1 && data.symbol.size() <= 16
+        && data.conditionType is string && data.conditionType.size() <= 32
+        && data.conditionType in ['PRICE_ABOVE', 'PRICE_BELOW', 'DAILY_CHANGE_PCT', 'RSI_ABOVE', 'RSI_BELOW', 'MACD_CROSSOVER', 'MA_CROSSOVER', 'COMPANY_NEWS']
+        && data.threshold is number
+        && data.timeframe is string && data.timeframe.size() >= 1 && data.timeframe.size() <= 16
+        && data.enabled is bool
+        && data.status is string && data.status.size() <= 16 && data.status in ['ARMED', 'TRIGGERED', 'PAUSED']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: ScreenerPreset
+    function isValidScreenerPreset(data) {
+      return data.keys().hasAll(['id', 'userId', 'name', 'sector', 'minMarketCapB', 'maxPE', 'minRsi', 'maxRsi', 'signalFilter', 'createdAt'])
+        && data.keys().hasOnly(['id', 'userId', 'name', 'sector', 'minMarketCapB', 'maxPE', 'minRsi', 'maxRsi', 'signalFilter', 'createdAt'])
+        && data.id is string && data.id.size() >= 1 && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 && data.userId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.userId == request.auth.uid
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 60
+        && data.sector is string && data.sector.size() <= 40
+        && data.minMarketCapB is number
+        && data.maxPE is number
+        && data.minRsi is number
+        && data.maxRsi is number
+        && data.signalFilter is string && data.signalFilter.size() <= 40
+        && data.createdAt is timestamp;
+    }
+
+    // User Profile Collection
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId) && existing().uid == request.auth.uid;
+      allow create: if isOwner(userId)
+        && isValidId(userId)
+        && isValidUserProfile(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isOwner(userId)
+        && isValidId(userId)
+        && isValidUserProfile(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action: Update Preferences & Profile
+          incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'bio', 'refreshIntervalSec', 'defaultTimeframe', 'defaultChartType', 'watchlist', 'updatedAt'])
+        );
+      allow delete: if isOwner(userId) && isValidId(userId);
+
+      // Isolated PII Subcollection
+      match /private/{docId} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(docId) && existing().uid == request.auth.uid;
+        allow create: if isOwner(userId)
+          && isValidId(userId)
+          && isValidId(docId)
+          && isValidUserPrivateInfo(incoming())
+          && incoming().createdAt == request.time
+          && exists(/databases/$(database)/documents/users/$(userId));
+        allow delete: if isOwner(userId) && isValidId(userId) && isValidId(docId);
+      }
+
+      // User Alerts Subcollection
+      match /alerts/{alertId} {
+        allow get: if isOwner(userId)
+          && isValidId(userId)
+          && isValidId(alertId)
+          && existing().userId == request.auth.uid
+          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+        allow list: if isOwner(userId)
+          && existing().userId == request.auth.uid;
+        allow create: if isOwner(userId)
+          && isValidId(userId)
+          && isValidId(alertId)
+          && isValidAlertConfig(incoming())
+          && incoming().id == alertId
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+        allow update: if isOwner(userId)
+          && isValidId(userId)
+          && isValidId(alertId)
+          && isValidAlertConfig(incoming())
+          && incoming().id == existing().id
+          && incoming().userId == existing().userId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            incoming().diff(existing()).affectedKeys().hasOnly(['threshold', 'timeframe', 'enabled', 'status', 'updatedAt'])
+          )
+          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+        allow delete: if isOwner(userId)
+          && isValidId(userId)
+          && isValidId(alertId)
+          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+      }
+
+      // User Screener Presets Subcollection
+      match /presets/{presetId} {
+        allow get: if isOwner(userId)
+          && isValidId(userId)
+          && isValidId(presetId)
+          && existing().userId == request.auth.uid
+          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+        allow list: if isOwner(userId)
+          && existing().userId == request.auth.uid;
+        allow create: if isOwner(userId)
+          && isValidId(userId)
+          && isValidId(presetId)
+          && isValidScreenerPreset(incoming())
+          && incoming().id == presetId
+          && incoming().createdAt == request.time
+          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+        allow delete: if isOwner(userId)
+          && isValidId(userId)
+          && isValidId(presetId)
+          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+      }
+    }
+  }
+}
