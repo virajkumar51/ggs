@@ -34,6 +34,7 @@ interface CompanyWorkspaceViewProps {
   forecastHorizon: number;
   onChangeForecastHorizon: (days: number) => void;
   initialSubTab?: 'OVERVIEW' | 'CHARTS' | 'FUNDAMENTALS' | 'NEWS' | 'TECHNICALS' | 'AI_RESEARCH';
+  onUpdateFundamentals?: (symbol: string, fundamentals: any, quote?: any) => void;
 }
 
 const RATIO_EDUCATION: Record<string, string> = {
@@ -59,6 +60,7 @@ export const CompanyWorkspaceView: React.FC<CompanyWorkspaceViewProps> = ({
   forecastHorizon,
   onChangeForecastHorizon,
   initialSubTab = 'OVERVIEW',
+  onUpdateFundamentals,
 }) => {
   const [subTab, setSubTab] = useState<
     'OVERVIEW' | 'CHARTS' | 'FUNDAMENTALS' | 'NEWS' | 'TECHNICALS' | 'AI_RESEARCH'
@@ -75,13 +77,39 @@ export const CompanyWorkspaceView: React.FC<CompanyWorkspaceViewProps> = ({
     timestamp: string;
   } | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [verifyingFund, setVerifyingFund] = useState(false);
+  const [verifyStatusMsg, setVerifyStatusMsg] = useState<string | null>(null);
 
   // Prevent data leakage across company workspaces when switching tickers
   useEffect(() => {
     setAiResult(null);
     setAiError(null);
     setAiQuestion('');
+    setVerifyStatusMsg(null);
   }, [stock.symbol]);
+
+  const handleVerifyLiveFundamentals = async () => {
+    if (verifyingFund) return;
+    setVerifyingFund(true);
+    setVerifyStatusMsg(null);
+    try {
+      const res = await fetch(`/api/market/verify-fundamentals/${encodeURIComponent(stock.symbol)}`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not verify fundamentals.');
+      if (data.fundamentals && onUpdateFundamentals) {
+        onUpdateFundamentals(stock.symbol, data.fundamentals, data.quote);
+      }
+      setVerifyStatusMsg(
+        `Verified via ${data.verifiedVia || 'Live Provider'} at ${new Date().toLocaleTimeString()}`
+      );
+    } catch (err: any) {
+      setVerifyStatusMsg(err.message || 'Live verification unavailable; displaying cached filings.');
+    } finally {
+      setVerifyingFund(false);
+    }
+  };
 
   useEffect(() => {
     if (initialSubTab) {
@@ -365,10 +393,22 @@ export const CompanyWorkspaceView: React.FC<CompanyWorkspaceViewProps> = ({
                 <p className="text-xs text-slate-400">
                   Source: {f.source} · Reporting Currency: {f.currency} · Fiscal Year End: {f.fiscalYearEnd} · Updated: {f.lastUpdated}
                 </p>
+                {verifyStatusMsg && (
+                  <p className="text-[11px] font-mono text-[#00E676] mt-1">{verifyStatusMsg}</p>
+                )}
               </div>
-              <span className="text-[11px] font-mono text-slate-400">
-                Missing inputs are marked Unavailable (never zero-filled)
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-mono text-slate-400 hidden sm:inline">
+                  Missing inputs marked Unavailable
+                </span>
+                <button
+                  onClick={handleVerifyLiveFundamentals}
+                  disabled={verifyingFund}
+                  className="px-3 py-1.5 rounded bg-[#00E5FF]/15 border border-[#00E5FF]/40 text-[#00E5FF] text-xs font-semibold hover:bg-[#00E5FF]/25 transition-colors disabled:opacity-50"
+                >
+                  {verifyingFund ? 'Verifying Live Feed...' : 'Verify Live Fundamentals'}
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 font-mono text-xs">

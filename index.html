@@ -2,6 +2,51 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      (function () {
+        function makeFetchWritable(target) {
+          if (!target) return;
+          try {
+            var desc = Object.getOwnPropertyDescriptor(target, 'fetch');
+            if (desc && desc.get && !desc.set && desc.configurable !== false) {
+              var origGet = desc.get;
+              var overrideFn = null;
+              Object.defineProperty(target, 'fetch', {
+                configurable: true,
+                enumerable: true,
+                get: function () {
+                  return overrideFn || origGet.call(this);
+                },
+                set: function (v) {
+                  if (typeof v === 'function') {
+                    overrideFn = v;
+                  }
+                },
+              });
+            }
+          } catch (e) {}
+        }
+        makeFetchWritable(window);
+        if (typeof Window !== 'undefined' && Window.prototype) {
+          makeFetchWritable(Window.prototype);
+        }
+        window.addEventListener(
+          'error',
+          function (e) {
+            var msg = String((e && e.message) || '');
+            var src = String((e && e.filename) || '');
+            if (
+              msg.indexOf('Cannot set property fetch') !== -1 ||
+              src.indexOf('chrome-extension://') === 0
+            ) {
+              e.stopImmediatePropagation();
+              e.preventDefault();
+            }
+          },
+          true
+        );
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>QuantPulse — Intelligence for Every Market Move</title>
     <meta name="description" content="Intelligence for Every Market Move — AI-powered stock-market research, technical analysis, screening, comparison, financial news, and scenario forecasting dashboard." />

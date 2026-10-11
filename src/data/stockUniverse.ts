@@ -1933,24 +1933,45 @@ export function buildDynamicCompanyData(params: {
   industry?: string;
   description?: string;
   price: number;
+  previousClose?: number;
+  change?: number;
   changePercent: number;
+  dayHigh?: number;
+  dayLow?: number;
   volume?: number;
+  fiftyTwoWeekHigh?: number | null;
+  fiftyTwoWeekLow?: number | null;
+  quoteTimestamp?: string;
+  marketState?: 'REGULAR' | 'PRE' | 'POST' | 'CLOSED';
+  isLiveData?: boolean;
+  candles3M?: CandlePoint[];
   marketCapB?: number | null;
   peRatio?: number | null;
   revenueTTM_B?: number | null;
   revenueGrowthYoY_Pct?: number | null;
   profitMarginPct?: number | null;
   source?: string;
+  dataSource?: string;
   news?: NewsItem[];
 }): StockData {
   const sym = params.symbol.toUpperCase().trim();
   const price = Number(params.price.toFixed(2));
   const changePercent = Number(params.changePercent.toFixed(2));
-  const prevClose = Number((price / (1 + changePercent / 100)).toFixed(2));
-  const change = Number((price - prevClose).toFixed(2));
-  const vol = params.volume || 8500000;
+  const prevClose =
+    typeof params.previousClose === 'number' && params.previousClose > 0
+      ? Number(params.previousClose.toFixed(2))
+      : Number((price / (1 + changePercent / 100)).toFixed(2));
+  const change =
+    typeof params.change === 'number'
+      ? Number(params.change.toFixed(2))
+      : Number((price - prevClose).toFixed(2));
+  const vol = params.volume || 0;
 
-  const candles = generateTimeframeCandles(sym, price, changePercent, vol, 0.11, 0.26);
+  const candles = generateTimeframeCandles(sym, price, changePercent, Math.max(vol, 1000000), 0.11, 0.26);
+  if (Array.isArray(params.candles3M) && params.candles3M.length > 0) {
+    candles['3M'] = params.candles3M;
+    candles['1M'] = params.candles3M.slice(-22);
+  }
 
   return {
     symbol: sym,
@@ -1960,28 +1981,30 @@ export function buildDynamicCompanyData(params: {
     industry: params.industry || 'Publicly Traded Security',
     description:
       params.description ||
-      `${params.name} (${sym}) is a publicly traded security retrieved via dynamic symbol discovery. Unavailable fundamental ratios are explicitly marked unavailable rather than estimated.`,
+      `${params.name} (${sym}) is a publicly traded security retrieved via live Yahoo Finance symbol discovery. Unreported fundamental ratios are explicitly marked Unavailable.`,
     headquarters: 'Reported via Exchange Filing',
-    founded: 'N/A',
+    founded: 'Unavailable',
     ceo: 'Reported in Proxy Filing',
-    employees: 'N/A',
+    employees: 'Unavailable',
     price,
     previousClose: prevClose,
     change,
     changePercent,
-    dayHigh: Number((price * 1.014).toFixed(2)),
-    dayLow: Number((price * 0.986).toFixed(2)),
+    dayHigh: typeof params.dayHigh === 'number' ? Number(params.dayHigh.toFixed(2)) : price,
+    dayLow: typeof params.dayLow === 'number' ? Number(params.dayLow.toFixed(2)) : price,
     dayOpen: prevClose,
     volume: vol,
     avgVolume: vol,
-    quoteTimestamp: new Date().toISOString(),
-    dataSource: params.source || 'Dynamic Symbol Discovery & Grounded Market Feed',
+    quoteTimestamp: params.quoteTimestamp || new Date().toISOString(),
+    dataSource: params.dataSource || params.source || 'Yahoo Finance Live Exchange Feed',
+    marketState: params.marketState || 'CLOSED',
+    isLiveData: params.isLiveData ?? true,
     candles,
     fundamentals: {
       currency: 'USD',
       fiscalYearEnd: 'Reported Period',
       lastUpdated: new Date().toISOString().slice(0, 10),
-      source: params.source || 'Dynamic Market Retrieval',
+      source: params.dataSource || params.source || 'Yahoo Finance Live Exchange Feed',
       marketCapB: params.marketCapB ?? null,
       peRatio: params.peRatio ?? null,
       forwardPe: null,
@@ -2001,9 +2024,9 @@ export function buildDynamicCompanyData(params: {
       totalDebtB: null,
       freeCashFlowTTM_B: null,
       dividendYieldPct: null,
-      beta: 1.1,
-      fiftyTwoWeekHigh: Number((price * 1.18).toFixed(2)),
-      fiftyTwoWeekLow: Number((price * 0.78).toFixed(2)),
+      beta: null,
+      fiftyTwoWeekHigh: params.fiftyTwoWeekHigh ?? null,
+      fiftyTwoWeekLow: params.fiftyTwoWeekLow ?? null,
       periods: [],
     },
     news:
@@ -2012,12 +2035,12 @@ export function buildDynamicCompanyData(params: {
         : [
             {
               id: `${sym}-dyn-news-1`,
-              headline: `${params.name} (${sym}) Added to QuantPulse Dynamic Research Workspace`,
+              headline: `${params.name} (${sym}) Added to QuantPulse Live Research Workspace`,
               summary:
                 'Use the AI Research tab with Google Search Grounding enabled to retrieve the latest live web news, SEC filings, and analyst commentary for this symbol.',
-              source: 'QuantPulse Dynamic Discovery',
+              source: 'QuantPulse Live Discovery',
               publishedAt: new Date().toISOString(),
-              url: `https://www.google.com/finance/quote/${sym}:NASDAQ`,
+              url: `https://finance.yahoo.com/quote/${sym}`,
               relatedSymbols: [sym],
               topic: 'Market Structure',
               sentimentHints: 'Neutral',
@@ -2025,3 +2048,4 @@ export function buildDynamicCompanyData(params: {
           ],
   };
 }
+

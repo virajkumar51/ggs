@@ -166,9 +166,11 @@ export default function App() {
   const [alerts, setAlerts] = useState<AlertConfigItem[]>(DEFAULT_ALERTS);
   const [presets, setPresets] = useState<ScreenerPresetItem[]>(DEFAULT_PRESETS);
 
-  // Real-Time Auto-Refresh State (every 15s by default)
+  // Real-Time Auto-Refresh & Live Market Session State (every 15s by default)
   const [refreshIntervalSec, setRefreshIntervalSec] = useState<number>(15);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [marketState, setMarketState] = useState<'REGULAR' | 'PRE' | 'POST' | 'CLOSED'>('CLOSED');
+  const [liveFeedConnected, setLiveFeedConnected] = useState<boolean>(false);
   const [lastRefreshTimestamp, setLastRefreshTimestamp] = useState<string>(
     new Date().toISOString()
   );
@@ -338,7 +340,144 @@ export default function App() {
     return list.slice(0, 12);
   }, [watchlist, technicalsMap]);
 
-  // Real-Time Market Refresh Function
+  // Initial Live Yahoo Finance Universe Hydration on Boot
+  useEffect(() => {
+    let cancelled = false;
+    setIsRefreshing(true);
+    fetch('/api/market/bootstrap')
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data) => {
+        if (cancelled || !data?.quotes) return;
+        const quotesMap = data.quotes;
+        if (data.marketState) setMarketState(data.marketState);
+        if (data.liveSymbolCount > 0) setLiveFeedConnected(true);
+
+        setStocks((prevStocks) =>
+          prevStocks.map((st) => {
+            const q = quotesMap[st.symbol];
+            if (!q) return st;
+            const nextCandles = { ...st.candles };
+            if (q.candles) {
+              (['1D', '1W', '1M', '3M', '6M', '1Y'] as Timeframe[]).forEach((tf) => {
+                if (Array.isArray(q.candles[tf]) && q.candles[tf].length > 0) {
+                  nextCandles[tf] = q.candles[tf];
+                }
+              });
+            }
+            return {
+              ...st,
+              price: q.price,
+              previousClose: q.previousClose,
+              change: q.change,
+              changePercent: q.changePercent,
+              dayHigh: q.dayHigh,
+              dayLow: q.dayLow,
+              dayOpen: q.dayOpen,
+              volume: q.volume || st.volume,
+              quoteTimestamp: q.quoteTimestamp || data.bootstrappedAt,
+              marketState: q.marketState || data.marketState,
+              dataSource: q.dataSource || 'Yahoo Finance Live Exchange Feed',
+              isLiveData: true,
+              candles: nextCandles,
+              fundamentals: {
+                ...st.fundamentals,
+                fiftyTwoWeekHigh: q.fiftyTwoWeekHigh ?? st.fundamentals.fiftyTwoWeekHigh,
+                fiftyTwoWeekLow: q.fiftyTwoWeekLow ?? st.fundamentals.fiftyTwoWeekLow,
+              },
+            };
+          })
+        );
+        setLastRefreshTimestamp(data.bootstrappedAt || new Date().toISOString());
+        setSecondsSinceRefresh(0);
+      })
+      .catch(() => {
+        // Fallback to cached snapshot if offline
+      })
+      .finally(() => {
+        if (!cancelled) setIsRefreshing(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Hydrate Real Timeframe OHLCV Candles & Live Fundamentals when Symbol or Timeframe changes
+  useEffect(() => {
+    let cancelled = false;
+    fetch(
+      `/api/market/symbol/${encodeURIComponent(
+        selectedSymbol
+      )}?timeframe=${encodeURIComponent(timeframe)}&includeFundamentals=true`
+    )
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data) => {
+        if (cancelled || !data?.quote) return;
+        const q = data.quote;
+        const liveFund = data.fundamentals;
+        if (q.marketState) setMarketState(q.marketState);
+        setLiveFeedConnected(true);
+
+        setStocks((prevStocks) =>
+          prevStocks.map((st) => {
+            if (st.symbol !== selectedSymbol) return st;
+            const nextCandles = { ...st.candles };
+            if (Array.isArray(q.candles) && q.candles.length > 0) {
+              nextCandles[timeframe] = q.candles;
+            }
+            const mergedFundamentals = liveFund
+              ? {
+                  ...st.fundamentals,
+                  ...liveFund,
+                  fiftyTwoWeekHigh:
+                    liveFund.fiftyTwoWeekHigh ??
+                    q.fiftyTwoWeekHigh ??
+                    st.fundamentals.fiftyTwoWeekHigh,
+                  fiftyTwoWeekLow:
+                    liveFund.fiftyTwoWeekLow ??
+                    q.fiftyTwoWeekLow ??
+                    st.fundamentals.fiftyTwoWeekLow,
+                  periods:
+                    Array.isArray(liveFund.periods) && liveFund.periods.length > 0
+                      ? liveFund.periods
+                      : st.fundamentals.periods,
+                }
+              : {
+                  ...st.fundamentals,
+                  fiftyTwoWeekHigh: q.fiftyTwoWeekHigh ?? st.fundamentals.fiftyTwoWeekHigh,
+                  fiftyTwoWeekLow: q.fiftyTwoWeekLow ?? st.fundamentals.fiftyTwoWeekLow,
+                };
+
+            return {
+              ...st,
+              price: q.price,
+              previousClose: q.previousClose,
+              change: q.change,
+              changePercent: q.changePercent,
+              dayHigh: q.dayHigh,
+              dayLow: q.dayLow,
+              dayOpen: q.dayOpen,
+              volume: q.volume || st.volume,
+              quoteTimestamp: q.quoteTimestamp || st.quoteTimestamp,
+              marketState: q.marketState || st.marketState,
+              dataSource: q.dataSource || st.dataSource,
+              isLiveData: true,
+              candles: nextCandles,
+              fundamentals: mergedFundamentals,
+            };
+          })
+        );
+      })
+      .catch(() => {
+        // Keep existing timeframe candles if upstream is unreachable
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSymbol, timeframe]);
+
+  // Real-Time Market Refresh Function (Strictly Live Exchange Quotes — Zero Synthetic Ticks)
   const triggerMarketRefresh = useCallback(async () => {
     if (isRefreshing) return;
     setIsRefreshing(true);
@@ -347,53 +486,66 @@ export default function App() {
       const res = await fetch('/api/market/refresh', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbols: symbolsToRefresh }),
+        body: JSON.stringify({
+          symbols: symbolsToRefresh,
+          activeSymbol: selectedSymbol,
+          activeTimeframe: timeframe,
+        }),
       });
       if (!res.ok) throw new Error('Refresh failed');
       const data = await res.json();
       const refreshedAt: string = data.refreshedAt || new Date().toISOString();
       const updates = data.updates || {};
+      if (data.marketState) setMarketState(data.marketState);
+      if (Object.keys(updates).length > 0) setLiveFeedConnected(true);
 
       setStocks((prevStocks) =>
         prevStocks.map((st) => {
-          const tick = updates[st.symbol];
-          if (!tick) return st;
-          const newPrice = Number(
-            Math.max(0.5, st.price * (1 + tick.deltaPct / 100)).toFixed(2)
-          );
-          const newChange = Number((newPrice - st.previousClose).toFixed(2));
-          const newChangePct = Number(
-            (((newPrice - st.previousClose) / st.previousClose) * 100).toFixed(2)
-          );
-          const newDayHigh = Math.max(st.dayHigh, newPrice);
-          const newDayLow = Math.min(st.dayLow, newPrice);
-          const newVol = st.volume + (tick.volumeDelta || 15000);
+          const live = updates[st.symbol];
+          if (!live || typeof live.price !== 'number') return st;
 
-          // Update latest candle bar in each timeframe so charts & technical indicators recalculate live
           const updatedCandles = { ...st.candles };
-          (['1D', '1W', '1M', '3M', '6M', '1Y'] as Timeframe[]).forEach((tf) => {
-            const arr = [...(updatedCandles[tf] || [])];
-            if (arr.length > 0) {
-              const last = { ...arr[arr.length - 1] };
-              last.close = newPrice;
-              last.high = Math.max(last.high, newPrice);
-              last.low = Math.min(last.low, newPrice);
-              last.volume = last.volume + Math.round((tick.volumeDelta || 10000) / 4);
-              arr[arr.length - 1] = last;
-              updatedCandles[tf] = arr;
-            }
-          });
+          if (
+            live.timeframeFetched &&
+            Array.isArray(live.candles) &&
+            live.candles.length > 0
+          ) {
+            updatedCandles[live.timeframeFetched as Timeframe] = live.candles;
+          } else {
+            // Ensure the final candle close matches the official exchange print without synthetic drift
+            (['1D', '1W', '1M', '3M', '6M', '1Y'] as Timeframe[]).forEach((tf) => {
+              const arr = [...(updatedCandles[tf] || [])];
+              if (arr.length > 0) {
+                const last = { ...arr[arr.length - 1] };
+                last.close = live.price;
+                last.high = Math.max(last.high, live.price);
+                last.low = Math.min(last.low, live.price);
+                arr[arr.length - 1] = last;
+                updatedCandles[tf] = arr;
+              }
+            });
+          }
 
           return {
             ...st,
-            price: newPrice,
-            change: newChange,
-            changePercent: newChangePct,
-            dayHigh: newDayHigh,
-            dayLow: newDayLow,
-            volume: newVol,
-            quoteTimestamp: refreshedAt,
+            price: live.price,
+            previousClose: live.previousClose ?? st.previousClose,
+            change: live.change ?? st.change,
+            changePercent: live.changePercent ?? st.changePercent,
+            dayHigh: live.dayHigh ?? st.dayHigh,
+            dayLow: live.dayLow ?? st.dayLow,
+            dayOpen: live.dayOpen ?? st.dayOpen,
+            volume: live.volume || st.volume,
+            quoteTimestamp: live.quoteTimestamp || refreshedAt,
+            marketState: live.marketState || data.marketState,
+            dataSource: live.dataSource || st.dataSource,
+            isLiveData: true,
             candles: updatedCandles,
+            fundamentals: {
+              ...st.fundamentals,
+              fiftyTwoWeekHigh: live.fiftyTwoWeekHigh ?? st.fundamentals.fiftyTwoWeekHigh,
+              fiftyTwoWeekLow: live.fiftyTwoWeekLow ?? st.fundamentals.fiftyTwoWeekLow,
+            },
           };
         })
       );
@@ -405,7 +557,7 @@ export default function App() {
     } finally {
       setIsRefreshing(false);
     }
-  }, [isRefreshing, stocks]);
+  }, [isRefreshing, stocks, selectedSymbol, timeframe]);
 
   // Automatic Interval Timer for Real-Time Refreshing
   useEffect(() => {
@@ -913,6 +1065,26 @@ export default function App() {
                   <strong className="font-mono text-slate-200">
                     {(selectedStock.volume / 1_000_000).toFixed(2)}M
                   </strong>
+                  {' · '}
+                  <span className="font-mono text-[10px] text-slate-400">
+                    {selectedStock.isLiveData ? (
+                      <span className="text-[#00E676]">
+                        {selectedStock.marketState === 'REGULAR'
+                          ? 'LIVE EXCHANGE FEED'
+                          : 'OFFICIAL EXCHANGE CLOSE'}
+                      </span>
+                    ) : (
+                      <span className="text-amber-400">REFERENCE SNAPSHOT</span>
+                    )}
+                    {' · '}
+                    Quote:{' '}
+                    {new Date(selectedStock.quoteTimestamp).toLocaleString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </span>
                 </span>
               </div>
             </div>
@@ -924,7 +1096,7 @@ export default function App() {
                 {isRefreshing ? (
                   <span className="flex items-center gap-1.5 text-[#00E5FF]">
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Refreshing...</span>
+                    <span>Syncing Live Feed...</span>
                   </span>
                 ) : isStale ? (
                   <span className="flex items-center gap-1.5 text-amber-400">
@@ -939,7 +1111,11 @@ export default function App() {
                   <span className="flex items-center gap-1.5 text-slate-300">
                     <Clock className="w-3.5 h-3.5 text-[#00E676]" />
                     <span>
-                      Updated {secondsSinceRefresh}s ago ({refreshIntervalSec}s loop)
+                      {liveFeedConnected
+                        ? marketState === 'REGULAR'
+                          ? `Live Feed (${secondsSinceRefresh}s ago)`
+                          : `Market Closed · Official Close (${secondsSinceRefresh}s ago)`
+                        : `Synced ${secondsSinceRefresh}s ago`}
                     </span>
                   </span>
                 )}
@@ -947,7 +1123,7 @@ export default function App() {
                   onClick={triggerMarketRefresh}
                   disabled={isRefreshing}
                   className="text-[#00E5FF] hover:underline ml-1"
-                  title="Refresh Market Data Now"
+                  title="Refresh Live Exchange Quotes Now"
                 >
                   Sync
                 </button>
@@ -1035,6 +1211,29 @@ export default function App() {
               forecastHorizon={forecastHorizon}
               onChangeForecastHorizon={setForecastHorizon}
               initialSubTab={companySubTab}
+              onUpdateFundamentals={(sym, fund, quote) => {
+                setStocks((prev) =>
+                  prev.map((st) =>
+                    st.symbol === sym
+                      ? {
+                          ...st,
+                          price: quote?.price ?? st.price,
+                          previousClose: quote?.previousClose ?? st.previousClose,
+                          change: quote?.change ?? st.change,
+                          changePercent: quote?.changePercent ?? st.changePercent,
+                          fundamentals: {
+                            ...st.fundamentals,
+                            ...fund,
+                            periods:
+                              Array.isArray(fund.periods) && fund.periods.length > 0
+                                ? fund.periods
+                                : st.fundamentals.periods,
+                          },
+                        }
+                      : st
+                  )
+                );
+              }}
             />
           )}
 
